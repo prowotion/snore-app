@@ -1,0 +1,28 @@
+# Snore Scope
+
+> A zero-dependency Progressive Web App that records and analyzes snoring from iPhone Safari. All audio and metrics stay on the device (IndexedDB). No server, no telemetry, no account.
+
+Audit, fork, and reuse are explicitly welcome — for humans and AI assistants alike. The entire application is three files.
+
+## Source
+
+- [index.html](https://raw.githubusercontent.com/prowotion/snore-app/main/index.html): Full app — HTML, CSS, JS. Contains audio capture (getUserMedia + MediaRecorder), the snore detection state machine (RMS + FFT 60–400 Hz, duration 0.3–3 s), metric computation (score, respiratory rate, regularity), IndexedDB persistence, and the UI (home, recording, detail views).
+- [sw.js](https://raw.githubusercontent.com/prowotion/snore-app/main/sw.js): Service worker — network-first for HTML, cache-first for static assets.
+- [manifest.json](https://raw.githubusercontent.com/prowotion/snore-app/main/manifest.json): Web App Manifest for iOS "Add to Home Screen".
+- [icon.svg](https://raw.githubusercontent.com/prowotion/snore-app/main/icon.svg): App icon.
+
+## Docs
+
+- [README.md](https://raw.githubusercontent.com/prowotion/snore-app/main/README.md): Install guide, tech stack, tunable parameters, limitations.
+- [LICENSE](https://raw.githubusercontent.com/prowotion/snore-app/main/LICENSE): MIT.
+
+## Audit focus areas
+
+- **Privacy**: verify no network egress for audio or user data. Only `navigator.serviceWorker.register` and the initial asset fetch should touch the network.
+- **Detection algorithm**: `SnoreSession._tick` in index.html — thresholds `rms > 0.018` and `lowRatio > 0.42`, window 0.3–3.5 s.
+- **Metric formulas**: `computeMetrics` in index.html — score weights (0.45 frequency, 0.3 intensity, 0.25 loud-percentage), stability from coefficient of variation on inter-event gaps.
+- **iOS PWA behavior**: Wake Lock usage, MediaRecorder continuity, IndexedDB blob storage.
+
+## Repository
+
+https://github.com/prowotion/snore-app

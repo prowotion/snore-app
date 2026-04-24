@@ -1,0 +1,19 @@
+{
+  "name": "Snore Scope",
+  "short_name": "SnoreScope",
+  "description": "Enregistre et analyse tes ronflements depuis Safari.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#05060d",
+  "theme_color": "#05060d",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}
