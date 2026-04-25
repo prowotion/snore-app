@@ -622,6 +622,7 @@ class SnoreSession {
 
     this.state = 'idle';
     this.loudStart = 0;
+    this.loudEnd = 0;
     this.loudMax = 0;
     this.loudLowRatioSum = 0;
     this.loudSamples = 0;
@@ -630,6 +631,9 @@ class SnoreSession {
     this.epochIntensity = []; // per-5-min buckets
     this.loudMsTotal = 0;
     this.pauses = 0;
+    // Adaptive ambient noise floor — RMS expected when no one is snoring.
+    // Updated only while idle so a snore doesn't pull it up.
+    this.noiseFloor = 0.005;
     this.startedAt = Date.now();
     this.startMono = performance.now();
     this.lastTickMono = this.startMono;
@@ -673,29 +677,41 @@ class SnoreSession {
     }
     const lowRatio = total > 0 ? low / total : 0;
 
-    const loudEnough = rms > 0.018;
-    const snoreLike  = loudEnough && lowRatio > 0.42;
+    // Adapt the noise floor only while we're not inside a candidate snore,
+    // so steady ambient (fan, traffic) raises the bar instead of triggering.
+    if (this.state === 'idle') {
+      this.noiseFloor = this.noiseFloor * 0.995 + rms * 0.005;
+    }
+    const rmsThreshold = Math.max(0.012, this.noiseFloor * 3);
+    const loudEnough = rms > rmsThreshold;
+    const snoreLike  = loudEnough && lowRatio > 0.35;
 
     const dtMs = now - this.lastTickMono;
     this.lastTickMono = now;
     if (loudEnough) this.loudMsTotal += dtMs;
 
-    // Snore state machine
+    // Snore state machine with release hysteresis: once we've entered the
+    // 'loud' state we wait ~150 ms of continuous non-snore activity before
+    // closing the event. Prevents brief dips mid-snore from killing it.
+    const RELEASE_SEC = 0.15;
     if (this.state === 'idle') {
       if (snoreLike) {
         this.state = 'loud';
         this.loudStart = tSec;
+        this.loudEnd = tSec;
         this.loudMax = rms;
         this.loudLowRatioSum = lowRatio;
         this.loudSamples = 1;
       }
     } else {
-      this.loudMax = Math.max(this.loudMax, rms);
-      this.loudLowRatioSum += lowRatio;
       this.loudSamples++;
-      if (!snoreLike) {
-        const dur = tSec - this.loudStart;
-        if (dur >= 0.3 && dur <= 3.5) {
+      if (snoreLike) {
+        this.loudMax = Math.max(this.loudMax, rms);
+        this.loudLowRatioSum += lowRatio;
+        this.loudEnd = tSec;
+      } else if (tSec - this.loudEnd >= RELEASE_SEC) {
+        const dur = this.loudEnd - this.loudStart;
+        if (dur >= 0.25 && dur <= 4.0) {
           const gap = this.lastSnoreEnd > 0 ? (this.loudStart - this.lastSnoreEnd) : null;
           if (gap !== null && gap > 10) this.pauses++;
           const ev = {
@@ -706,7 +722,7 @@ class SnoreSession {
             gap,
           };
           this.events.push(ev);
-          this.lastSnoreEnd = tSec;
+          this.lastSnoreEnd = this.loudEnd;
           // Update epoch bucket (5-minute)
           const bucket = Math.floor(this.loudStart / 300);
           this.epochIntensity[bucket] = (this.epochIntensity[bucket] || 0) + this.loudMax;
