@@ -414,6 +414,17 @@
     border: 1px solid rgba(255,107,138,.3);
     border-radius: 12px; font-size: 14px;
   }
+
+  .app-version {
+    margin-top: 28px;
+    padding: 4px 0 8px;
+    text-align: center;
+    color: var(--text-soft);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    font-variant-numeric: tabular-nums;
+  }
 </style>
 </head>
 <body>
@@ -447,6 +458,8 @@
     <h2 class="section-title">Historique</h2>
     <div id="history-list"></div>
   </section>
+
+  <footer class="app-version">v<span id="app-version"></span></footer>
 </main>
 
 <!-- RECORDING -->
@@ -512,7 +525,10 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// ---------- Utilities ----------
+// Bump on every release so users can verify they're on the latest build.
+// Keep in sync with the CACHE name in sw.js.
+const APP_VERSION = '1.1.0 · 2026-04-25';
+
 const $ = (id) => document.getElementById(id);
 const toast = (msg, ms = 2200) => {
   const el = $('toast');
@@ -1032,6 +1048,8 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   });
 }
+
+$('app-version').textContent = APP_VERSION;
 
 // Initial render
 renderHome();
