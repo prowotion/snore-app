@@ -415,6 +415,16 @@
     border-radius: 12px; font-size: 14px;
   }
 
+  .debug-line {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-soft);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .04em;
+    text-align: center;
+  }
+  .debug-line.hot { color: var(--danger); }
+
   .app-version {
     margin-top: 28px;
     padding: 4px 0 8px;
@@ -478,6 +488,7 @@
       </div>
     </div>
     <div class="rec-meter"><div id="meter-bar"></div></div>
+    <div class="debug-line" id="debug-line">rms 0.000 · low 0% · seuil 0.012</div>
   </div>
   <div class="rec-bottom-stats">
     <div class="mini"><div class="v" id="rate-v">–</div><div class="l">Resp / min</div></div>
@@ -527,7 +538,7 @@
 <script>
 // Bump on every release so users can verify they're on the latest build.
 // Keep in sync with the CACHE name in sw.js.
-const APP_VERSION = '1.1.0 · 2026-04-25';
+const APP_VERSION = '1.2.0 · 2026-04-25';
 
 const $ = (id) => document.getElementById(id);
 const toast = (msg, ms = 2200) => {
@@ -668,7 +679,15 @@ class SnoreSession {
     this.recorder.start(); // single continuous recording
 
     this._tick = this._tick.bind(this);
-    this._raf = requestAnimationFrame(this._tick);
+    // iOS Safari often hands back a suspended AudioContext even after
+    // getUserMedia inside a user gesture — resume() so the analyser
+    // actually receives samples instead of silence.
+    const start = () => { this._raf = requestAnimationFrame(this._tick); };
+    if (this.ctx.state === 'suspended' && this.ctx.resume) {
+      this.ctx.resume().finally(start);
+    } else {
+      start();
+    }
   }
 
   _tick() {
@@ -750,6 +769,8 @@ class SnoreSession {
     if (this.onTick) {
       this.onTick({
         tSec, rms, lowRatio,
+        rmsThreshold,
+        snoreLike,
         snoreCount: this.events.length,
         loudPct: this.loudMsTotal / (tSec * 1000 || 1),
         pauses: this.pauses,
@@ -859,7 +880,7 @@ async function startSession() {
   showView('rec');
   armDim();
 
-  session.onTick = ({ tSec, rms, snoreCount, loudPct, pauses, instantSnoring }) => {
+  session.onTick = ({ tSec, rms, lowRatio, rmsThreshold, snoreLike, snoreCount, loudPct, pauses, instantSnoring }) => {
     $('rec-time').textContent = fmtTime(tSec);
     $('orb-count').textContent = snoreCount;
     $('meter-bar').style.width = Math.min(100, rms * 400) + '%';
@@ -870,6 +891,9 @@ async function startSession() {
     orb.style.transform = `scale(${scale})`;
     orb.classList.toggle('snore', instantSnoring);
     $('rec-status-label').textContent = instantSnoring ? 'Ronflement' : 'Écoute';
+    const dbg = $('debug-line');
+    dbg.textContent = `rms ${rms.toFixed(3)} · low ${Math.round(lowRatio * 100)}% · seuil ${rmsThreshold.toFixed(3)}`;
+    dbg.classList.toggle('hot', snoreLike);
   };
 }
 
