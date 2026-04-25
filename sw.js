@@ -1,4 +1,4 @@
-const CACHE = 'snore-scope-v6';
+const CACHE = 'snore-scope-v7';
 const ASSETS = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', (e) => {

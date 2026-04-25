@@ -538,7 +538,7 @@
 <script>
 // Bump on every release so users can verify they're on the latest build.
 // Keep in sync with the CACHE name in sw.js.
-const APP_VERSION = '1.2.0 · 2026-04-25';
+const APP_VERSION = '1.3.0 · 2026-04-25';
 
 const $ = (id) => document.getElementById(id);
 const toast = (msg, ms = 2200) => {
@@ -643,7 +643,10 @@ class SnoreSession {
     this.source.connect(this.analyser);
 
     this.sr = this.ctx.sampleRate;
-    this.timeBuf = new Float32Array(this.analyser.fftSize);
+    // Byte time-domain buffer: iOS Safari sometimes returns silence from
+    // getFloatTimeDomainData even when audio is flowing, but the byte
+    // version stays reliable. Values are 0..255 around 128 = silence.
+    this.timeBuf = new Uint8Array(this.analyser.fftSize);
     this.freqBuf = new Uint8Array(this.analyser.frequencyBinCount);
     this.binHz = (this.sr / 2) / this.analyser.frequencyBinCount;
 
@@ -693,12 +696,17 @@ class SnoreSession {
   _tick() {
     const now = performance.now();
     const tSec = (now - this.startMono) / 1000;
-    this.analyser.getFloatTimeDomainData(this.timeBuf);
+    this.analyser.getByteTimeDomainData(this.timeBuf);
     this.analyser.getByteFrequencyData(this.freqBuf);
 
-    // RMS
+    // RMS computed from byte time-domain (centered around 128 = silence,
+    // normalized to ±1). Quantization step ≈ 1/128 ≈ 0.008 — fine for our
+    // thresholds. More reliable than the Float variant on iOS Safari.
     let sum = 0;
-    for (let i = 0; i < this.timeBuf.length; i++) sum += this.timeBuf[i] * this.timeBuf[i];
+    for (let i = 0; i < this.timeBuf.length; i++) {
+      const v = (this.timeBuf[i] - 128) / 128;
+      sum += v * v;
+    }
     const rms = Math.sqrt(sum / this.timeBuf.length);
 
     // Low freq ratio
