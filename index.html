@@ -414,6 +414,17 @@
     border: 1px solid rgba(255,107,138,.3);
     border-radius: 12px; font-size: 14px;
   }
+
+  .app-version {
+    margin-top: 28px;
+    padding: 4px 0 8px;
+    text-align: center;
+    color: var(--text-soft);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    font-variant-numeric: tabular-nums;
+  }
 </style>
 </head>
 <body>
@@ -447,6 +458,8 @@
     <h2 class="section-title">Historique</h2>
     <div id="history-list"></div>
   </section>
+
+  <footer class="app-version">v<span id="app-version"></span></footer>
 </main>
 
 <!-- RECORDING -->
@@ -512,7 +525,10 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// ---------- Utilities ----------
+// Bump on every release so users can verify they're on the latest build.
+// Keep in sync with the CACHE name in sw.js.
+const APP_VERSION = '1.1.0 · 2026-04-25';
+
 const $ = (id) => document.getElementById(id);
 const toast = (msg, ms = 2200) => {
   const el = $('toast');
@@ -622,6 +638,7 @@ class SnoreSession {
 
     this.state = 'idle';
     this.loudStart = 0;
+    this.loudEnd = 0;
     this.loudMax = 0;
     this.loudLowRatioSum = 0;
     this.loudSamples = 0;
@@ -630,6 +647,9 @@ class SnoreSession {
     this.epochIntensity = []; // per-5-min buckets
     this.loudMsTotal = 0;
     this.pauses = 0;
+    // Adaptive ambient noise floor — RMS expected when no one is snoring.
+    // Updated only while idle so a snore doesn't pull it up.
+    this.noiseFloor = 0.005;
     this.startedAt = Date.now();
     this.startMono = performance.now();
     this.lastTickMono = this.startMono;
@@ -673,29 +693,41 @@ class SnoreSession {
     }
     const lowRatio = total > 0 ? low / total : 0;
 
-    const loudEnough = rms > 0.018;
-    const snoreLike  = loudEnough && lowRatio > 0.42;
+    // Adapt the noise floor only while we're not inside a candidate snore,
+    // so steady ambient (fan, traffic) raises the bar instead of triggering.
+    if (this.state === 'idle') {
+      this.noiseFloor = this.noiseFloor * 0.995 + rms * 0.005;
+    }
+    const rmsThreshold = Math.max(0.012, this.noiseFloor * 3);
+    const loudEnough = rms > rmsThreshold;
+    const snoreLike  = loudEnough && lowRatio > 0.35;
 
     const dtMs = now - this.lastTickMono;
     this.lastTickMono = now;
     if (loudEnough) this.loudMsTotal += dtMs;
 
-    // Snore state machine
+    // Snore state machine with release hysteresis: once we've entered the
+    // 'loud' state we wait ~150 ms of continuous non-snore activity before
+    // closing the event. Prevents brief dips mid-snore from killing it.
+    const RELEASE_SEC = 0.15;
     if (this.state === 'idle') {
       if (snoreLike) {
         this.state = 'loud';
         this.loudStart = tSec;
+        this.loudEnd = tSec;
         this.loudMax = rms;
         this.loudLowRatioSum = lowRatio;
         this.loudSamples = 1;
       }
     } else {
-      this.loudMax = Math.max(this.loudMax, rms);
-      this.loudLowRatioSum += lowRatio;
       this.loudSamples++;
-      if (!snoreLike) {
-        const dur = tSec - this.loudStart;
-        if (dur >= 0.3 && dur <= 3.5) {
+      if (snoreLike) {
+        this.loudMax = Math.max(this.loudMax, rms);
+        this.loudLowRatioSum += lowRatio;
+        this.loudEnd = tSec;
+      } else if (tSec - this.loudEnd >= RELEASE_SEC) {
+        const dur = this.loudEnd - this.loudStart;
+        if (dur >= 0.25 && dur <= 4.0) {
           const gap = this.lastSnoreEnd > 0 ? (this.loudStart - this.lastSnoreEnd) : null;
           if (gap !== null && gap > 10) this.pauses++;
           const ev = {
@@ -706,7 +738,7 @@ class SnoreSession {
             gap,
           };
           this.events.push(ev);
-          this.lastSnoreEnd = tSec;
+          this.lastSnoreEnd = this.loudEnd;
           // Update epoch bucket (5-minute)
           const bucket = Math.floor(this.loudStart / 300);
           this.epochIntensity[bucket] = (this.epochIntensity[bucket] || 0) + this.loudMax;
@@ -1016,6 +1048,8 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   });
 }
+
+$('app-version').textContent = APP_VERSION;
 
 // Initial render
 renderHome();
